@@ -533,7 +533,306 @@ function Crimson:Init(opts)
     end
     return self
 end
+-- ══════════════════════════════════════════════════════════════
+--     MOBILE SUPPORT PATCH — вызывай после Crimson:Init()
+--     Crimson:MobileSupport()
+-- ══════════════════════════════════════════════════════════════
 
+function Crimson:MobileSupport()
+    local UIS = game:GetService("UserInputService")
+    local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
+    
+    if not isMobile and not self._forceMobile then return self end
+    
+    local sg = self._screenGui
+    local main = self._main
+    local orb = self._orb
+    
+    -- ═══════ DETECT SCREEN SIZE ═══════
+    local camera = workspace.CurrentCamera
+    local screenSize = camera.ViewportSize
+    local isSmallScreen = screenSize.X < 500 or screenSize.Y < 700
+    
+    -- ═══════ ADAPT WINDOW SIZE ═══════
+    local mobileW, mobileH
+    if isSmallScreen then
+        -- Очень маленький экран (старые телефоны)
+        mobileW = math.floor(screenSize.X * 0.92)
+        mobileH = math.floor(screenSize.Y * 0.85)
+    else
+        -- Планшет / большой телефон
+        mobileW = math.min(math.floor(screenSize.X * 0.88), 460)
+        mobileH = math.min(math.floor(screenSize.Y * 0.82), 720)
+    end
+    
+    self._winW = mobileW
+    self._winH = mobileH
+    
+    -- Обновить размер если открыто
+    if self._isOpen then
+        Tween(main, {Size = UDim2.fromOffset(mobileW, mobileH)}, 0.4)
+    end
+    
+    -- ═══════ BIGGER ORB FOR FINGERS ═══════
+    local mobileOrbSize = 56
+    
+    if orb then
+        -- Увеличить орб
+        orb.Size = UDim2.fromOffset(mobileOrbSize, mobileOrbSize)
+        
+        -- Увеличить точку внутри
+        local dot = self._orbDot
+        if dot then
+            if self._isOpen then
+                dot.Size = UDim2.fromOffset(6, 6)
+            else
+                dot.Size = UDim2.fromOffset(14, 14)
+            end
+        end
+        
+        -- Переместить в правый нижний угол (удобнее для пальца)
+        orb.Position = UDim2.new(1, -50, 1, -80)
+        
+        -- Обновить ring
+        local ring = orb:FindFirstChild("Frame")
+        if ring then
+            ring.Size = UDim2.fromOffset(mobileOrbSize, mobileOrbSize)
+        end
+        
+        -- Обновить hover размеры
+        -- Пересоздаём hover connections
+        local oldEnter, oldLeave
+        for _, conn in ipairs(orb:GetPropertyChangedSignal("AbsoluteSize"):GetConnections and {} or {}) do
+            -- нет доступа, пропускаем
+        end
+        
+        -- Добавляем haptic feedback simulation (визуальный)
+        local origClick
+        orb.MouseButton1Click:Connect(function()
+            -- Visual haptic — quick pulse
+            local pulse = Instance.new("Frame")
+            pulse.BackgroundColor3 = Theme.Red
+            pulse.BackgroundTransparency = 0.6
+            pulse.BorderSizePixel = 0
+            pulse.Size = UDim2.fromOffset(mobileOrbSize, mobileOrbSize)
+            pulse.AnchorPoint = Vector2.new(0.5, 0.5)
+            pulse.Position = UDim2.new(0.5, 0, 0.5, 0)
+            pulse.ZIndex = 197
+            pulse.Parent = orb
+            MakeCorner(pulse, UDim.new(1, 0))
+            
+            Tween(pulse, {
+                Size = UDim2.fromOffset(mobileOrbSize * 2, mobileOrbSize * 2),
+                BackgroundTransparency = 1
+            }, 0.4)
+            task.delay(0.45, function()
+                if pulse and pulse.Parent then pulse:Destroy() end
+            end)
+        end)
+    end
+    
+    -- ═══════ MAKE ELEMENTS BIGGER (TOUCH FRIENDLY) ═══════
+    local scroll = self._scrollFrame
+    if scroll then
+        -- Bigger scrollbar for touch
+        scroll.ScrollBarThickness = 6
+        
+        -- More padding
+        local pad = scroll:FindFirstChildOfClass("UIPadding")
+        if pad then
+            pad.PaddingLeft = UDim.new(0, 16)
+            pad.PaddingRight = UDim.new(0, 16)
+            pad.PaddingTop = UDim.new(0, 8)
+            pad.PaddingBottom = UDim.new(0, 20)
+        end
+        
+        -- Bigger spacing
+        local list = scroll:FindFirstChildOfClass("UIListLayout")
+        if list then
+            list.Padding = UDim.new(0, 7)
+        end
+        
+        -- Scale up all elements
+        for _, child in ipairs(scroll:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("TextButton") then
+                local currentH = child.Size.Y.Offset
+                if currentH > 0 and currentH < 100 then
+                    -- Add 8px height for bigger touch targets
+                    local newH = currentH + 8
+                    child.Size = UDim2.new(child.Size.X.Scale, child.Size.X.Offset, 0, newH)
+                end
+                
+                -- Bigger corner radius
+                local corner = child:FindFirstChildOfClass("UICorner")
+                if corner then
+                    corner.CornerRadius = UDim.new(0, 12)
+                end
+                
+                -- Scale up text
+                for _, desc in ipairs(child:GetDescendants()) do
+                    if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
+                        if desc.TextSize < 14 then
+                            desc.TextSize = desc.TextSize + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- ═══════ BIGGER SEARCH BAR ═══════
+    local searchContainer = main:FindFirstChild("Frame")
+    -- Find search box
+    for _, child in ipairs(main:GetChildren()) do
+        if child:IsA("Frame") and child.BackgroundTransparency == 1 then
+            for _, sub in ipairs(child:GetChildren()) do
+                if sub:IsA("TextBox") then
+                    -- Make search bigger
+                    child.Size = UDim2.new(1, 0, 0, 46)
+                    sub.TextSize = 15
+                    break
+                end
+            end
+        end
+    end
+    
+    -- ═══════ BIGGER CLOSE BUTTON ═══════
+    for _, child in ipairs(main:GetDescendants()) do
+        if child:IsA("TextButton") and child.Text == "×" then
+            child.Size = UDim2.fromOffset(40, 40)
+            child.TextSize = 24
+        end
+    end
+    
+    -- ═══════ SAFE AREA (NOTCH/CAMERA) ═══════
+    -- Добавляем отступ сверху для notch
+    local topInset, bottomInset = 0, 0
+    pcall(function()
+        local guiInset = game:GetService("GuiService")
+        local insetTop = guiInset:GetGuiInset()
+        topInset = insetTop.Y
+    end)
+    
+    -- ═══════ ADAPT NOTIFICATIONS ═══════
+    if self._notifHolder then
+        self._notifHolder.Size = UDim2.new(0, math.min(280, screenSize.X - 30), 1, -20)
+        self._notifHolder.Position = UDim2.new(1, -math.min(290, screenSize.X - 20), 0, 10)
+    end
+    
+    -- ═══════ SWIPE TO CLOSE ═══════
+    do
+        local swipeStart = nil
+        local swipeThreshold = 80
+        
+        main.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                swipeStart = input.Position
+            end
+        end)
+        
+        main.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch and swipeStart then
+                local delta = input.Position - swipeStart
+                
+                -- Swipe down to close
+                if delta.Y > swipeThreshold and math.abs(delta.X) < swipeThreshold then
+                    self:Close()
+                end
+                
+                swipeStart = nil
+            end
+        end)
+    end
+    
+    -- ═══════ HANDLE ORIENTATION CHANGE ═══════
+    local function onResize()
+        local newSize = camera.ViewportSize
+        local newSmall = newSize.X < 500 or newSize.Y < 700
+        
+        local newW, newH
+        if newSmall then
+            newW = math.floor(newSize.X * 0.92)
+            newH = math.floor(newSize.Y * 0.85)
+        else
+            newW = math.min(math.floor(newSize.X * 0.88), 460)
+            newH = math.min(math.floor(newSize.Y * 0.82), 720)
+        end
+        
+        self._winW = newW
+        self._winH = newH
+        
+        if self._isOpen then
+            Tween(main, {Size = UDim2.fromOffset(newW, newH)}, 0.4)
+        end
+        
+        -- Update notification holder
+        if self._notifHolder then
+            self._notifHolder.Size = UDim2.new(0, math.min(280, newSize.X - 30), 1, -20)
+            self._notifHolder.Position = UDim2.new(1, -math.min(290, newSize.X - 20), 0, 10)
+        end
+    end
+    
+    camera:GetPropertyChangedSignal("ViewportSize"):Connect(onResize)
+    
+    -- ═══════ PREVENT ZOOM ON INPUT FOCUS ═══════
+    -- На мобилках при фокусе на TextBox камера может зумиться
+    for _, desc in ipairs(main:GetDescendants()) do
+        if desc:IsA("TextBox") then
+            desc.Focused:Connect(function()
+                -- Поднять окно чуть выше чтобы клавиатура не закрывала
+                if self._isOpen then
+                    Tween(main, {Position = UDim2.new(0.5, 0, 0.35, 0)}, 0.3)
+                end
+            end)
+            desc.FocusLost:Connect(function()
+                if self._isOpen then
+                    Tween(main, {Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.3)
+                end
+            end)
+        end
+    end
+    
+    -- ═══════ DOUBLE TAP ORB TO DESTROY ═══════
+    local lastTap = 0
+    local doubleTapThreshold = 0.3
+    
+    if orb then
+        local origClickConn
+        orb.MouseButton1Click:Connect(function()
+            local now = tick()
+            if now - lastTap < doubleTapThreshold then
+                -- Double tap — show destroy confirm
+                self:Ask({
+                    Title = "Destroy UI?",
+                    Content = "Double-tap detected. Remove UI completely?",
+                    ConfirmText = "Destroy",
+                    CancelText = "Keep",
+                    OnConfirm = function()
+                        self:Destroy()
+                    end,
+                })
+            end
+            lastTap = now
+        end)
+    end
+    
+    -- ═══════ VISUAL INDICATOR ═══════
+    -- Показать что mobile mode активен
+    self:Notify({
+        Title = "📱 Mobile Mode",
+        Content = "Touch optimized. Swipe down to close. Double-tap orb to destroy.",
+        Type = "Info",
+        Duration = 4,
+    })
+    
+    return self
+end
+
+-- Принудительно включить mobile mode даже на PC (для тестов)
+function Crimson:ForceMobile()
+    self._forceMobile = true
+    return self:MobileSupport()
+end
 -- Elements
 function Crimson:Separator(text)
     self._elementIndex += 1
